@@ -1,11 +1,9 @@
 from collections import defaultdict
 from log_parser import parse_logs
 
-LOG_FILE = "app.log"
-
-logs = parse_logs(LOG_FILE)
-
-# Keywords that indicate real problems
+# --------------------------------------------------
+# Severity keywords
+# --------------------------------------------------
 HIGH_SEVERITY_KEYWORDS = [
     "failed",
     "error",
@@ -25,34 +23,48 @@ MEDIUM_SEVERITY_KEYWORDS = [
     "unrecognized"
 ]
 
-# Group logs by (service, clean_message) for frequency analysis
-incident_counts = defaultdict(list)
 
-for log in logs:
-    key = (log["service"], log["clean_message"])
-    incident_counts[key].append(log["timestamp"])
-
-
-def infer_severity_from_text(clean_message: str) -> str:
+# --------------------------------------------------
+# Base severity inference
+# --------------------------------------------------
+def infer_severity(clean_message: str) -> str:
     """
     Infer base severity from message content.
     """
+    msg = clean_message.lower()
+
     for word in HIGH_SEVERITY_KEYWORDS:
-        if word in clean_message:
+        if word in msg:
             return "HIGH"
 
     for word in MEDIUM_SEVERITY_KEYWORDS:
-        if word in clean_message:
+        if word in msg:
             return "MEDIUM"
 
     return "LOW"
 
 
-def frequency_boost(service, clean_message):
+# --------------------------------------------------
+# Frequency-based escalation
+# --------------------------------------------------
+def build_incident_index(logs):
+    """
+    Build incident frequency index.
+    """
+    incident_counts = defaultdict(list)
+
+    for log in logs:
+        key = (log["service"], log["clean_message"])
+        incident_counts[key].append(log["timestamp"])
+
+    return incident_counts
+
+
+def frequency_boost(service, clean_message, incident_index):
     """
     Escalate severity based on repetition frequency.
     """
-    count = len(incident_counts[(service, clean_message)])
+    count = len(incident_index.get((service, clean_message), []))
 
     if count >= 5:
         return "CRITICAL"
@@ -62,19 +74,31 @@ def frequency_boost(service, clean_message):
     return None
 
 
-# Final severity assignment (preview)
-print("\nLOG SEVERITY OUTPUT")
-print("-" * 70)
+# --------------------------------------------------
+# Script mode (only runs if called directly)
+# --------------------------------------------------
+if __name__ == "__main__":
+    LOG_FILE = "app.log"
 
-for log in logs[:50]:  # preview only
-    base_severity = infer_severity_from_text(log["clean_message"])
-    boost = frequency_boost(log["service"], log["clean_message"])
+    logs = parse_logs(LOG_FILE)
+    incident_index = build_incident_index(logs)
 
-    final_severity = boost if boost else base_severity
+    print("\nLOG SEVERITY OUTPUT")
+    print("-" * 70)
 
-    print(
-        f"{log['timestamp']} | "
-        f"{log['service']} | "
-        f"{final_severity} | "
-        f"{log['message'][:80]}"
-    )
+    for log in logs[:50]:  # preview only
+        base_severity = infer_severity(log["clean_message"])
+        boost = frequency_boost(
+            log["service"],
+            log["clean_message"],
+            incident_index
+        )
+
+        final_severity = boost if boost else base_severity
+
+        print(
+            f"{log['timestamp']} | "
+            f"{log['service']} | "
+            f"{final_severity} | "
+            f"{log['message'][:80]}"
+        )
